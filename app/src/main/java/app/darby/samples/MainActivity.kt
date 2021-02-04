@@ -5,16 +5,20 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresPermission
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.asLiveData
 import androidx.lifecycle.lifecycleScope
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.*
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -25,6 +29,9 @@ import kotlin.coroutines.resumeWithException
  * refs: https://medium.com/androiddevelopers/simplifying-apis-with-coroutines-and-flow-a6fb65338765
  * refs: https://developer.android.com/topic/libraries/architecture/coroutines
  * refs: https://medium.com/androiddevelopers/easy-coroutines-in-android-viewmodelscope-25bffb605471
+ * refs: https://developer.android.com/codelabs/building-kotlin-extensions-library#5
+ *
+ * TODO LifecycleService 에서 Location 업데이트 하기
  */
 class MainActivity : AppCompatActivity() {
 
@@ -41,7 +48,11 @@ class MainActivity : AppCompatActivity() {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
         withPermission(Manifest.permission.ACCESS_FINE_LOCATION) {
+            // one-time
             getLastLocation()
+
+            // periodic location request
+            startUpdatingLocation()
         }
     }
 
@@ -95,6 +106,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    private fun startUpdatingLocation() {
+        fusedLocationClient.locationFlow()
+                .conflate()
+                .catch { e ->
+                    Log.e("MyApp>", "periodic location failed.", e)
+                }
+                .asLiveData()
+                .observe(this) { location ->
+                    Log.i("MyApp>", "periodic location tick: $location, from callback flow")
+                }
+    }
 }
 
 @RequiresPermission(anyOf = [
@@ -111,6 +134,42 @@ private suspend fun FusedLocationProviderClient.awaitLastLocation(): Location =
                 continuation.resumeWithException(e)
             }
         }
+
+@ExperimentalCoroutinesApi
+@RequiresPermission(anyOf = [
+    Manifest.permission.ACCESS_COARSE_LOCATION,
+    Manifest.permission.ACCESS_FINE_LOCATION]
+)
+private fun FusedLocationProviderClient.locationFlow(): Flow<Location> = callbackFlow {
+    val callback = object : LocationCallback() {
+        override fun onLocationResult(result: LocationResult?) {
+            result ?: return
+            for (location in result.locations) {
+                try {
+                    offer(location)
+                } catch (e : Throwable) {
+                    // Location count' be sent to the flow
+                }
+            }
+        }
+    }
+
+    val request = LocationRequest.create().apply {
+        interval = 3000
+        fastestInterval = 2000
+        priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+    }
+
+    requestLocationUpdates(request, callback, Looper.getMainLooper())
+            .addOnFailureListener {
+                // error -> close the flow
+                close(it)
+            }
+
+    awaitClose {
+        removeLocationUpdates(callback)
+    }
+}
 
 
 // permission --------------------------------------------------------------------------------------

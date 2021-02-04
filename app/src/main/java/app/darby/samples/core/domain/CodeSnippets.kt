@@ -2,6 +2,14 @@ package app.darby.samples.core.domain
 
 /**
  * test kotlin keyword 'in' and 'out'
+ *
+ * kotlin generic
+ *  out: could assign a class of subtype to ca lass of super-type
+ *  in: could assign a class of super-type to a class of subtype
+ *
+ * java generic
+ *  ? extends T: subtype can only read
+ *  ? super T: super-type can only write
  */
 
 // in and out --------------------------------------------------------------------------------------
