@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Samples</string>
+    <string name="activity_name_memory_leak">Memory Leak</string>
 </resources>
